@@ -1350,6 +1350,7 @@ function doLogin() {
 
 function doLogout() { _auth.signOut(); }
 
+_auth.signOut().then(function() {
 _auth.onAuthStateChanged(function(user) {
   var screen  = document.getElementById('login-screen');
   var userEl  = document.getElementById('topbar-user');
@@ -1387,6 +1388,7 @@ _auth.onAuthStateChanged(function(user) {
     _db.ref('state').off();
   }
 });
+}); // end signOut().then
 
 /* ═══ SITE STATE ═════════════════════════════════════════════════════ */
 function getSS(key) {

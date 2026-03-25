@@ -1230,6 +1230,16 @@ var _auth = firebase.auth();
 // Sanitize site keys for Firebase path segments (no . # $ [ ] / or spaces)
 function _fbKey(k) { return k.replace(/[\s.#$\[\]\/]/g, '_'); }
 
+// Escape user-supplied strings before inserting into innerHTML
+function _esc(s) {
+  return (s == null ? '' : String(s))
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /* ═══ STORAGE (Firebase Realtime Database) ════════════════════════════ */
 window._dataReady = false;
 
@@ -1293,15 +1303,15 @@ function _applyGeocacheToSites() {
 
 /* ═══ UI REFRESH (all devices — called on every Firebase remote update) ═ */
 function _refreshAllUI() {
-  try { buildLotGrid();  } catch(e){}
-  try { updateStats();   } catch(e){}
-  try { renderRoster();  } catch(e){}
+  try { buildLotGrid();  } catch(e){ console.error('buildLotGrid failed:', e); }
+  try { updateStats();   } catch(e){ console.error('updateStats failed:', e); }
+  try { renderRoster();  } catch(e){ console.error('renderRoster failed:', e); }
   // Refresh site marker colors for every plotted site
-  Object.keys(siteMarkers).forEach(function(k){ try{updateMarker(k);}catch(e){} });
+  Object.keys(siteMarkers).forEach(function(k){ try{updateMarker(k);}catch(e){ console.error('updateMarker failed:', k, e); } });
   // Refresh the open site detail panel if one is selected
-  if(S.selSite) { try{renderSiteDetail(S.selSite);}catch(e){} }
+  if(S.selSite) { try{renderSiteDetail(S.selSite);}catch(e){ console.error('renderSiteDetail failed:', e); } }
   // Mobile stats
-  try{updateMobStats();}catch(e){}
+  try{updateMobStats();}catch(e){ console.error('updateMobStats failed:', e); }
   // Refresh alerts UI for incoming remote alerts
   try {
     var n=S.alerts.length; var btn=document.getElementById('alertbtn');
@@ -1310,12 +1320,12 @@ function _refreshAllUI() {
     if(list) list.innerHTML=S.alerts.slice(0,12).map(function(a){
       var col=a.type==='success'?'var(--green)':a.type==='warning'?'var(--orange)':'var(--blue2)';
       return '<div style="padding:9px 12px;border-bottom:1px solid rgba(255,140,0,.08)">'
-        +'<div style="font-size:14px;color:'+col+'">'+a.title+'</div>'
-        +'<div style="font-family:var(--fm);font-size:12px;color:var(--tx2);margin-top:2px">'+a.detail+'</div>'
-        +'<div style="font-family:var(--fm);font-size:10px;color:rgba(255,140,0,.4);margin-top:1px">'+a.time+'</div>'
+        +'<div style="font-size:14px;color:'+col+'">'+_esc(a.title)+'</div>'
+        +'<div style="font-family:var(--fm);font-size:12px;color:var(--tx2);margin-top:2px">'+_esc(a.detail)+'</div>'
+        +'<div style="font-family:var(--fm);font-size:10px;color:rgba(255,140,0,.4);margin-top:1px">'+_esc(a.time)+'</div>'
         +'</div>';
     }).join('');
-  }catch(e){}
+  }catch(e){ console.error('alerts render failed:', e); }
 }
 
 /* ═══ AUTH + STARTUP FLOW ════════════════════════════════════════════ */
@@ -1469,11 +1479,11 @@ function renderRoster() {
       : '';
 
     var crew=[];
-    if(v.driver) crew.push('Driver: '+v.driver);
-    if(v.helper) crew.push('Helper: '+v.helper);
-    if(v.andsons) crew.push('Andsons: '+v.andsons);
-    if(v.rider) crew.push('Rider: '+v.rider);
-    if(v.coordinator) crew.push('Coord: '+v.coordinator);
+    if(v.driver) crew.push('Driver: '+_esc(v.driver));
+    if(v.helper) crew.push('Helper: '+_esc(v.helper));
+    if(v.andsons) crew.push('Andsons: '+_esc(v.andsons));
+    if(v.rider) crew.push('Rider: '+_esc(v.rider));
+    if(v.coordinator) crew.push('Coord: '+_esc(v.coordinator));
     var crewHTML=crew.length?'<div class="vc-crew">'+crew.join(' &middot; ')+'</div>':'<div class="vc-crew" style="color:var(--tx3)">No crew &mdash; click PLAN ROUTE to configure</div>';
 
     var setsHTML='';
@@ -1501,12 +1511,12 @@ function renderRoster() {
     card.innerHTML=
       '<div class="vc-top">'
         +'<div><div class="vc-type"><span style="font-size:'+icoSz+'">'+v.icon+'</span> '+TYPE_LABELS[v.type]+'</div>'
-        +'<div class="vc-name" style="color:'+nameCol+'">'+v.name+'</div></div>'
+        +'<div class="vc-name" style="color:'+nameCol+'">'+_esc(v.name)+'</div></div>'
         +'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px"><span class="sbadge '+stCls+'">'+stTxt+'</span>'+gpsBadge+'</div>'
       +'</div>'
-      +(v.dest&&v.status==='outbound'?'<div style="font-size:13px;color:var(--blue2);margin-top:2px">&rarr; '+v.dest+'</div>':'')
+      +(v.dest&&v.status==='outbound'?'<div style="font-size:13px;color:var(--blue2);margin-top:2px">&rarr; '+_esc(v.dest)+'</div>':'')
       +crewHTML
-      +(v.plate?'<div class="vc-plate">&#128664; '+v.plate+'</div>':'')
+      +(v.plate?'<div class="vc-plate">&#128664; '+_esc(v.plate)+'</div>':'')
       +setsHTML+progHTML
       +'<div class="vc-coords">'+v.lat.toFixed(5)+', '+v.lng.toFixed(5)+'</div>'
       +'<div class="vc-btns">'
@@ -1771,7 +1781,7 @@ function renderSiteDetail(key){
   }).join('');
 
   var logHTML = (ss.log||[]).slice(-5).reverse().map(function(l){
-    return '<div class="logitem"><span class="lt">' + l.time + '</span> <span class="la">[' + l.actor + ']</span> <span class="lm">' + l.msg + '</span></div>';
+    return '<div class="logitem"><span class="lt">' + _esc(l.time) + '</span> <span class="la">[' + _esc(l.actor) + ']</span> <span class="lm">' + _esc(l.msg) + '</span></div>';
   }).join('') || '<div style="font-family:var(--fm);font-size:12px;color:var(--tx2);padding:5px 0">No activity yet.</div>';
 
   var statuses   = ['pending','transit','delivered','partial','failed'];
@@ -1786,9 +1796,9 @@ function renderSiteDetail(key){
     '<div class="site-hdr">'
     + '<button class="btn sm" style="float:right;margin-bottom:5px" onclick="deselectSite()">&#10005; DESELECT</button>'
     + '<div class="lot-badge" style="background:' + m.color + '22;color:' + m.color + ';border:1px solid ' + m.color + '44">' + lot + '</div>'
-    + '<div class="site-name">' + ss.district + '</div>'
-    + '<div class="site-div">'  + ss.division  + '</div>'
-    + '<div class="site-addr">' + fullAddress   + '</div>'
+    + '<div class="site-name">' + _esc(ss.district)   + '</div>'
+    + '<div class="site-div">'  + _esc(ss.division)   + '</div>'
+    + '<div class="site-addr">' + _esc(fullAddress)   + '</div>'
     + (allocEntry ? '<div style="font-family:var(--fm);font-size:10px;color:rgba(0,150,255,.5);margin-top:2px">&#128209; Official allocation address</div>' : '')
     + '</div>'
     + '<div class="status-row">' + statChips + '</div>'
@@ -1800,9 +1810,9 @@ function renderSiteDetail(key){
     + '<select style="background:transparent;border:none;color:var(--blue2);font-family:var(--fm);font-size:13px;cursor:pointer;max-width:150px" onchange="assignVeh(window._curKey,this.value)">'
     + '<option value="">Unassigned</option>' + vlist + '</select></div>'
     + '<div class="dr"><span class="drl">Contact Person</span>'
-    + '<input style="background:transparent;border:none;color:var(--blue2);font-family:var(--fm);font-size:13px;text-align:right;width:140px" value="' + (ss.contactPerson||'') + '" placeholder="Name" onchange="updateField(window._curKey,\'contactPerson\',this.value)"></div>'
+    + '<input style="background:transparent;border:none;color:var(--blue2);font-family:var(--fm);font-size:13px;text-align:right;width:140px" value="' + _esc(ss.contactPerson||'') + '" placeholder="Name" onchange="updateField(window._curKey,\'contactPerson\',this.value)"></div>'
     + '<div class="dr"><span class="drl">Contact Phone</span>'
-    + '<input style="background:transparent;border:none;color:var(--blue2);font-family:var(--fm);font-size:13px;text-align:right;width:140px" value="' + (ss.contactPhone||'') + '" placeholder="Number" onchange="updateField(window._curKey,\'contactPhone\',this.value)"></div>'
+    + '<input style="background:transparent;border:none;color:var(--blue2);font-family:var(--fm);font-size:13px;text-align:right;width:140px" value="' + _esc(ss.contactPhone||'') + '" placeholder="Number" onchange="updateField(window._curKey,\'contactPhone\',this.value)"></div>'
     + '<div class="dr"><span class="drl">Coordinates</span><span class="drv" style="font-size:11px">' + (ss.lat?ss.lat.toFixed(5)+', '+ss.lng.toFixed(5):'Geocoding...') + '</span></div>'
     + '<div style="margin:6px 0"><div class="progbar" style="height:4px"><div class="progfill" style="width:' + pct + '%;background:var(--green)"></div></div>'
     + '<div style="font-family:var(--fm);font-size:11px;color:var(--tx2);margin-top:2px">' + done + '/' + CL.length + ' workflow steps</div></div>'
@@ -1811,7 +1821,7 @@ function renderSiteDetail(key){
     + clHTML
     + (ss.lat?'<button class="btn" onclick="routeWH(window._curKey)" style="margin-top:8px">&#10230; ROUTE: WAREHOUSE &#8594; HERE</button>':'')
     + '<div style="font-family:var(--fm);font-size:12px;color:var(--tx2);margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px">Field Notes</div>'
-    + '<textarea class="inp" rows="2" placeholder="Notes, access issues..." onchange="saveNote(window._curKey,this.value)">' + (ss.notes||'') + '</textarea>'
+    + '<textarea class="inp" rows="2" placeholder="Notes, access issues..." onchange="saveNote(window._curKey,this.value)">' + _esc(ss.notes||'') + '</textarea>'
     + (ss.driveLink?'<a href="' + ss.driveLink + '" target="_blank" style="display:block;margin-top:5px;font-family:var(--fm);font-size:12px;color:var(--blue2)">&#128193; Google Drive Photos</a>':'')
     + '<div style="display:flex;gap:5px;margin-top:8px">'
     + '<button class="btn" style="flex:1;background:rgba(0,255,136,.06);border-color:rgba(0,255,136,.3);color:var(--green)" onclick="markDel(window._curKey)">&#10003; DELIVERED</button>'
@@ -2506,7 +2516,9 @@ function pollGPS() {
       Object.keys(VEHICLES).forEach(function(vid) {
         var v = VEHICLES[vid];
         if(v.traccarId && String(v.traccarId) === String(pos.deviceId)) {
-          v.lat = pos.latitude; v.lng = pos.longitude;
+          var lat = parseFloat(pos.latitude), lng = parseFloat(pos.longitude);
+          if(isNaN(lat)||isNaN(lng)||lat<-90||lat>90||lng<-180||lng>180) return;
+          v.lat = lat; v.lng = lng;
           v._gpsLive = true; v._gpsLastSeen = now;
           // Move marker immediately on this device
           renderVehMarker(vid, v);

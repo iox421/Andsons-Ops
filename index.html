@@ -1225,6 +1225,7 @@ var _fbConfig = {
 firebase.initializeApp(_fbConfig);
 var _db   = firebase.database();
 var _auth = firebase.auth();
+_auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
 
 /* ═══ FIREBASE UTILITIES ════════════════════════════════════════════ */
 // Sanitize site keys for Firebase path segments (no . # $ [ ] / or spaces)

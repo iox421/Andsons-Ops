@@ -750,9 +750,9 @@ button,.vcard,.lot-tile,.dropitem,.wfstep,.schip,.newsitem{touch-action:manipula
 <!-- TICKER (desktop) -->
 <div id="ticker">
   <div class="ticker-wrap" id="ticker-inner">
-    <span>&#9661; SYSTEM ONLINE &nbsp;|&nbsp; ALL FEEDS ACTIVE</span>
+    <span id="ticker-status">&#9661; SYSTEM ONLINE &nbsp;|&nbsp; ALL FEEDS ACTIVE</span>
     <span><b>864</b> DELIVERY SITES &nbsp;|&nbsp; <b>8</b> LOTS &nbsp;|&nbsp; REGIONS I II III IV-B V VI</span>
-    <span>&#9733; GEOCODER: GOOGLE MAPS API &nbsp;|&nbsp; WEATHER: OPEN-METEO &nbsp;|&nbsp; CELL TOWERS: OPENCELLID</span>
+    <span>&#9733; GEOCODER: GOOGLE MAPS + NOMINATIM &nbsp;|&nbsp; WEATHER: OPEN-METEO &nbsp;|&nbsp; CELL TOWERS: OPENCELLID</span>
     <span>&#8987; SOFT CLOSE: 15:00 &nbsp;|&nbsp; HARD CLOSE: 16:00 &nbsp;|&nbsp; STRATEGY B2 ACTIVE</span>
   </div>
 </div>
@@ -790,7 +790,7 @@ button,.vcard,.lot-tile,.dropitem,.wfstep,.schip,.newsitem{touch-action:manipula
 <!-- BOTTOMBAR (desktop) -->
 <div id="bottombar">
   <span>&#9679; GEOCODER: <b id="bb-geo">GOOGLE MAPS</b></span>
-  <span>&#9679; MAP: <b id="bb-map">DARK OPS</b></span>
+  <span>&#9679; MAP: <b id="bb-map">DARK</b></span>
   <span>&#9679; ROUTING: OSRM</span>
   <span>&#9679; WEATHER: OPEN-METEO</span>
   <span>&#9679; STATE: FIREBASE REALTIME DB</span>
@@ -1229,6 +1229,17 @@ var _auth = firebase.auth();
 /* ═══ FIREBASE UTILITIES ════════════════════════════════════════════ */
 // Sanitize site keys for Firebase path segments (no . # $ [ ] / or spaces)
 function _fbKey(k) { return k.replace(/[\s.#$\[\]\/]/g, '_'); }
+
+// Live Firebase connection indicator in ticker
+_db.ref('.info/connected').on('value', function(snap) {
+  var el = document.getElementById('ticker-status');
+  if (!el) return;
+  if (snap.val() === true) {
+    el.innerHTML = '&#9661; SYSTEM ONLINE &nbsp;|&nbsp; FIREBASE CONNECTED';
+  } else {
+    el.innerHTML = '&#9888; SYSTEM OFFLINE &nbsp;|&nbsp; RECONNECTING\u2026';
+  }
+});
 
 // Escape user-supplied strings before inserting into innerHTML
 function _esc(s) {

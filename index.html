@@ -641,6 +641,7 @@ button,.vcard,.lot-tile,.dropitem,.wfstep,.schip,.newsitem{touch-action:manipula
   </div>
   <div class="tbar-r">
     <button class="alertbtn" id="alertbtn" onclick="document.getElementById('alerts-modal').classList.add('open')">⚠ ALERTS</button>
+    <button id="audit-coords-btn" onclick="openCoordsAudit()" title="Find sites whose coordinates are likely wrong (too far from claimed province)" style="background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.4);color:var(--gold);font-family:var(--fm);font-size:11px;padding:4px 9px;cursor:pointer;letter-spacing:1px;margin-right:6px">&#9678; AUDIT COORDS</button>
     <div class="livebadge"><div class="dot"></div><span>LIVE</span></div>
     <div id="topbar-user"></div>
     <button id="gps-toggle-btn" onclick="toggleGPS()" style="background:rgba(106,138,170,.06);border:1px solid rgba(106,138,170,.3);color:var(--tx2);font-family:var(--fm);font-size:11px;padding:4px 9px;cursor:pointer;letter-spacing:1px;transition:all .2s">&#9678; GPS OFF</button>
@@ -950,8 +951,18 @@ button,.vcard,.lot-tile,.dropitem,.wfstep,.schip,.newsitem{touch-action:manipula
           &#128205; PASTE FROM GOOGLE MAPS
         </button>
         <div id="gmaps-paste-panel" style="display:none;padding:12px;background:rgba(0,255,136,.04);border:1px solid rgba(0,255,136,.15);margin-bottom:8px">
+          <!-- Paste full Google Maps URL — auto-extract coords -->
+          <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(0,255,136,.12)">
+            <div class="form-lbl" style="font-family:var(--fm);font-size:10px;color:var(--green);letter-spacing:1px;margin-bottom:6px">PASTE GOOGLE MAPS URL (FASTEST)</div>
+            <input class="inp" id="gmp-url" type="text" placeholder="Paste Google Maps URL here..." style="width:100%;margin-bottom:6px">
+            <button class="btn" onclick="extractFromGmapsUrl()" style="width:100%;margin-top:0;border-color:rgba(0,255,136,.4);color:var(--green)">&#10003; EXTRACT COORDINATES</button>
+            <div id="gmp-url-err" style="display:none;font-family:var(--fm);font-size:11px;color:var(--red);margin-top:6px"></div>
+            <div style="font-family:var(--fm);font-size:10px;color:var(--tx2);margin-top:6px;line-height:1.5">
+              On Google Maps: long-press or right-click a location &rarr; copy the link &rarr; paste here.
+            </div>
+          </div>
           <div style="font-family:var(--fm);font-size:11px;color:var(--tx2);line-height:1.7;margin-bottom:10px">
-            Right-click any location on Google Maps &rarr; click the coordinates that appear &rarr; paste each value below
+            Or enter coordinates manually below
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
             <div>
@@ -984,7 +995,30 @@ button,.vcard,.lot-tile,.dropitem,.wfstep,.schip,.newsitem{touch-action:manipula
   </div>
 </div>
 
-
+<!-- COORD AUDIT MODAL — finds sites whose coords are likely wrong -->
+<div id="audit-coords-modal" class="modal">
+  <div class="mbox" style="width:min(720px,94vw);max-height:85vh;overflow:hidden;display:flex;flex-direction:column">
+    <div class="mhdr">
+      <span class="mtitle">&#9678; COORDINATE AUDIT</span>
+      <button class="mcls" onclick="document.getElementById('audit-coords-modal').classList.remove('open')">&#10005;</button>
+    </div>
+    <div class="mbody" style="overflow:hidden;display:flex;flex-direction:column;flex:1">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-family:var(--fm);font-size:11px;color:var(--tx2);letter-spacing:1px">SUSPICION THRESHOLD:</span>
+        <select id="audit-threshold" onchange="renderCoordsAudit()" style="background:#020810;border:1px solid var(--b1);color:var(--tx);padding:4px 8px;font-family:var(--fm);font-size:12px">
+          <option value="50">&gt; 50 km off (loose — many results)</option>
+          <option value="100" selected>&gt; 100 km off (likely wrong)</option>
+          <option value="200">&gt; 200 km off (almost certainly wrong)</option>
+        </select>
+        <span id="audit-count" style="font-family:var(--fm);font-size:12px;color:var(--gold);margin-left:auto"></span>
+      </div>
+      <div style="font-family:var(--fm);font-size:10.5px;color:var(--tx2);margin-bottom:10px;line-height:1.5;padding:8px;background:rgba(245,166,35,.04);border-left:2px solid var(--gold)">
+        Compares each site's coordinates to a centroid of its claimed province / city. Distances are flagged if the coordinate lands far from where it should. Click <b>FIX</b> to open the site, paste the correct Google Maps URL, save.
+      </div>
+      <div id="audit-list" style="overflow-y:auto;flex:1;border:1px solid rgba(245,166,35,.1);padding:4px"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ MOBILE STATS BAR ═══════════════════════════════════════════ -->
 <div id="mob-stats-bar">
@@ -1097,7 +1131,8 @@ function initMap() {
     icon:{path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:'#F5A623',fillOpacity:.95,strokeColor:'#FFF',strokeWeight:2},
     title:'ANDSONS WAREHOUSE — Imus, Cavite', zIndex:9999
   });
-  window.map.addListener('click', onMapClick);
+  // Map click handler is registered later in startApp() so it can also handle route mode.
+  // Avoid registering a second handler here — caused B-8: every click double-fired deselectSite.
   if (window._appReady) tryStartApp();
   else window._mapsReady = true;
 }
@@ -1373,11 +1408,12 @@ function doLogout() { _auth.signOut(); }
 /* Force login on every page load:
    1. Disable session persistence (no localStorage save)
    2. Sign out any existing session
-   3. Then attach the auth state listener */
-_auth.setPersistence(firebase.auth.Auth.Persistence.NONE)
-  .then(function() { return _auth.signOut(); })
-  .then(function() {
-    _auth.onAuthStateChanged(function(user) {
+   3. Then attach the auth state listener
+   4. If steps 1-2 fail (Safari ITP / private mode), still attach the listener (B-13) */
+function _attachAuthListener() {
+  if(window._authListenerAttached) return;
+  window._authListenerAttached = true;
+  _auth.onAuthStateChanged(function(user) {
       var screen  = document.getElementById('login-screen');
       var userEl  = document.getElementById('topbar-user');
       var logoutB = document.getElementById('logout-btn');
@@ -1413,13 +1449,33 @@ _auth.setPersistence(firebase.auth.Auth.Persistence.NONE)
         _db.ref('state').off();
       }
     });
+}
+_auth.setPersistence(firebase.auth.Auth.Persistence.NONE)
+  .then(function() { return _auth.signOut(); })
+  .then(_attachAuthListener)
+  .catch(function(err) {
+    // Safari ITP or private mode may reject setPersistence. Attach the
+    // listener anyway so the user can still log in.
+    console.warn('Auth persistence chain failed; attaching listener anyway', err);
+    _attachAuthListener();
   });
 
 /* ═══ SITE STATE ═════════════════════════════════════════════════════ */
 function getSS(key) {
-  if(!S.sites[key]) S.sites[key]={status:'pending',notes:'',log:[],checklist:{},
+  // Defaults for every expected field — backfilled even when site already exists,
+  // because Firebase-loaded sites may be missing fields added in later schema versions.
+  // Fix: marker click would crash renderSiteDetail when ss.checklist was undefined.
+  var _ssDefaults = {status:'pending',notes:'',log:[],checklist:{},
     assignedVehicle:null,lat:null,lng:null,district:'',division:'',address:'',qty:0,lot:'',
     contactPerson:'',contactPhone:'',lastAttempt:null,returnDate:null,driveLink:''};
+  if(!S.sites[key]) {
+    S.sites[key] = _ssDefaults;
+  } else {
+    // Backfill missing fields without overwriting existing data
+    for(var _f in _ssDefaults) {
+      if(S.sites[key][_f] === undefined) S.sites[key][_f] = _ssDefaults[_f];
+    }
+  }
   return S.sites[key];
 }
 
@@ -1665,8 +1721,8 @@ function plotSite(lot,entry,key,lat,lng){
       _lm:lm, _vis:vis, _lot:lot,
       setVisible:function(v){ if(v&&!this._vis){lm.addTo(window.map._lmap);this._vis=true;} else if(!v&&this._vis){lm.remove();this._vis=false;} },
       setMap:function(mp){ if(mp){lm.addTo(window.map._lmap);}else{lm.remove();} },
-      setIcon:function(){},
-      setPosition:function(){},
+      setIcon:function(o){ if(this._lm && o && o.fillColor) this._lm.setStyle({fillColor:o.fillColor, radius:(o.scale||7)}); },
+      setPosition:function(p){ if(this._lm && p && p.lat!=null && p.lng!=null) this._lm.setLatLng([p.lat, p.lng]); },
       setOptions:function(o){ if(o.zIndex!==undefined){} }
     };
   } else if(window.map) {
@@ -1729,8 +1785,14 @@ function updateMarker(key){
   var m=siteMarkers[key]; if(!m) return;
   var sc={pending:'#8AA0B8',transit:'#0096FF',delivered:'#00FF88',partial:'#FF8C14',failed:'#FF2244'};
   var ss=S.sites[key]||{};
-  m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:ss.status==='transit'||ss.status==='failed'?11:8,
-    fillColor:sc[ss.status]||sc.pending,fillOpacity:.92,strokeColor:'#FFF',strokeWeight:1.5});
+  var bigStatus=(ss.status==='transit'||ss.status==='failed');
+  var color=sc[ss.status]||sc.pending;
+  if(window.map && window.map._isLeaflet){
+    if(m._lm) m._lm.setStyle({fillColor:color, radius:bigStatus?9:7, fillOpacity:.92, color:'#FFF', weight:1.5});
+  } else if(typeof google!=='undefined' && google.maps && m.setIcon){
+    m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:bigStatus?11:8,
+      fillColor:color,fillOpacity:.92,strokeColor:'#FFF',strokeWeight:1.5});
+  }
 }
 
 /* ═══ SITE DETAIL ════════════════════════════════════════════════════ */
@@ -1911,6 +1973,19 @@ function routeWH(key){
 }
 
 /* ═══ ROUTING ════════════════════════════════════════════════════════ */
+function _drawPolyline(path, color, weight, opacity){
+  // Cross-map polyline factory — works for Google or Leaflet
+  if(window.map && window.map._isLeaflet){
+    var latlngs = path.map(function(p){ return [p.lat, p.lng]; });
+    var pl = L.polyline(latlngs, {color:color, weight:weight, opacity:opacity});
+    pl.addTo(window.map._lmap);
+    // Mimic Google Polyline.setMap(null) for cleanup
+    return { _lm:pl, setMap:function(m){ if(!m) this._lm.remove(); else this._lm.addTo(window.map._lmap); } };
+  } else if(typeof google!=='undefined' && google.maps){
+    return new google.maps.Polyline({path:path,map:window.map,strokeColor:color,strokeWeight:weight,strokeOpacity:opacity});
+  }
+  return null;
+}
 function drawRoute(pts,label,color){
   if(activeRoute)activeRoute.setMap(null);
   var coords=pts.map(function(p){return p.lng+','+p.lat;}).join(';');
@@ -1919,11 +1994,11 @@ function drawRoute(pts,label,color){
       if(d.routes&&d.routes[0]){
         var path=d.routes[0].geometry.coordinates.map(function(c){return{lat:c[1],lng:c[0]};});
         var dist=(d.routes[0].distance/1000).toFixed(1),dur=Math.round(d.routes[0].duration/60);
-        activeRoute=new google.maps.Polyline({path:path,map:window.map,strokeColor:color,strokeWeight:3,strokeOpacity:.85});
+        activeRoute=_drawPolyline(path,color,3,.85);
         document.getElementById('geo-msg').textContent='ROUTE: '+label+' — '+dist+'km ~'+dur+'min';
       }
     }).catch(function(){
-      activeRoute=new google.maps.Polyline({path:pts,map:window.map,strokeColor:color,strokeWeight:2,strokeOpacity:.5});
+      activeRoute=_drawPolyline(pts,color,2,.5);
     });
 }
 var routeMode=false,routePts=[];
@@ -2325,6 +2400,15 @@ function setLayer(n){
 }
 function toggleWxLayer(){
   document.getElementById('btn-wx').classList.toggle('on');
+  // Leaflet path
+  if(window.map && window.map._isLeaflet){
+    if(wxOverlay){ try{wxOverlay.remove();}catch(_){} wxOverlay=null; return; }
+    wxOverlay=L.tileLayer('https://tiles.windy.com/tiles/v9.0/rain-mm/{z}/{x}/{y}.png',{opacity:.5});
+    wxOverlay.addTo(window.map._lmap);
+    return;
+  }
+  // Google Maps path
+  if(typeof google==='undefined' || !google.maps) return;
   if(wxOverlay){window.map.overlayMapTypes.clear();wxOverlay=null;return;}
   wxOverlay=new google.maps.ImageMapType({
     getTileUrl:function(coord,zoom){return'https://tiles.windy.com/tiles/v9.0/rain-mm/'+zoom+'/'+coord.x+'/'+coord.y+'.png';},
@@ -2334,9 +2418,22 @@ function toggleWxLayer(){
 }
 function toggleCellLayer(){
   document.getElementById('btn-cell').classList.toggle('on');
-  if(S.cellLayerOn){cellMarkers.forEach(function(m){m.setMap(null);});S.cellLayerOn=false;return;}
+  var isLeaflet = window.map && window.map._isLeaflet;
+  if(S.cellLayerOn){
+    cellMarkers.forEach(function(m){
+      if(isLeaflet){ if(m._lm) try{m._lm.remove();}catch(_){} }
+      else if(m.setMap) m.setMap(null);
+    });
+    S.cellLayerOn=false; return;
+  }
   S.cellLayerOn=true;
-  if(S.cellLoaded){cellMarkers.forEach(function(m){m.setMap(window.map);});return;}
+  if(S.cellLoaded){
+    cellMarkers.forEach(function(m){
+      if(isLeaflet){ if(m._lm) m._lm.addTo(window.map._lmap); }
+      else if(m.setMap) m.setMap(window.map);
+    });
+    return;
+  }
   document.getElementById('ii-cell').textContent='Loading...';
   var url='https://opencellid.org/cell/getInArea?key=pk.e0babc3c81fe41dd4498aed9e4f069b9&BBOX=5,116,22,127&format=json&limit=2000';
   fetch('https://api.allorigins.win/get?url='+encodeURIComponent(url))
@@ -2347,13 +2444,20 @@ function toggleCellLayer(){
       S.cellLoaded=true;
       towers.forEach(function(t){
         if(!t.lat||!t.lon)return;
-        var m=new google.maps.Marker({
-          position:{lat:parseFloat(t.lat),lng:parseFloat(t.lon)},
-          map:S.cellLayerOn?window.map:null,
-          icon:{path:google.maps.SymbolPath.CIRCLE,scale:4,fillColor:'#00D2FF',fillOpacity:.6,strokeColor:'#00D2FF',strokeWeight:1},
-          title:'Cell Tower',zIndex:1
-        });
-        cellMarkers.push(m);
+        var tlat=parseFloat(t.lat), tlng=parseFloat(t.lon);
+        if(isLeaflet){
+          var lm=L.circleMarker([tlat,tlng],{radius:4,fillColor:'#00D2FF',color:'#00D2FF',weight:1,fillOpacity:.6});
+          if(S.cellLayerOn) lm.addTo(window.map._lmap);
+          cellMarkers.push({_lm:lm});
+        } else if(typeof google!=='undefined' && google.maps){
+          var m=new google.maps.Marker({
+            position:{lat:tlat,lng:tlng},
+            map:S.cellLayerOn?window.map:null,
+            icon:{path:google.maps.SymbolPath.CIRCLE,scale:4,fillColor:'#00D2FF',fillOpacity:.6,strokeColor:'#00D2FF',strokeWeight:1},
+            title:'Cell Tower',zIndex:1
+          });
+          cellMarkers.push(m);
+        }
       });
       // addAlert('Cell Towers Loaded',towers.length+' towers plotted — check coverage gaps','info'); // suppressed
     }).catch(function(){document.getElementById('ii-cell').textContent='offline';});
@@ -2380,8 +2484,8 @@ function fetchNews(district,division){
         var source=item.querySelector('source')&&item.querySelector('source').textContent||'News';
         var age=pubDate?timeAgo(new Date(pubDate)):'';
         var div=document.createElement('div');div.className='newsitem';
-        div.innerHTML='<div class="news-src">'+source+'</div><div class="news-title">'+title.replace(/ - .+$/,'')+'</div><div class="news-age">'+age+'</div>';
-        div.onclick=function(){window.open(link,'_blank');};
+        div.innerHTML='<div class="news-src">'+_esc(source)+'</div><div class="news-title">'+_esc(title.replace(/ - .+$/,''))+'</div><div class="news-age">'+_esc(age)+'</div>';
+        div.onclick=(function(href){return function(){ window.open(href,'_blank','noopener,noreferrer'); };})(link);
         list.appendChild(div);
       });
     }).catch(function(){document.getElementById('news-list').innerHTML='<div style="padding:10px;font-family:var(--fm);font-size:12px;color:var(--tx2);text-align:center">News offline</div>';});
@@ -2410,9 +2514,9 @@ function addAlert(title,detail,type){
   document.getElementById('alerts-list').innerHTML=S.alerts.slice(0,12).map(function(a){
     var col=a.type==='success'?'var(--green)':a.type==='warning'?'var(--orange)':'var(--blue2)';
     return '<div style="padding:9px 12px;border-bottom:1px solid rgba(255,140,0,.08)">'
-      +'<div style="font-size:14px;color:'+col+'">'+a.title+'</div>'
-      +'<div style="font-family:var(--fm);font-size:12px;color:var(--tx2);margin-top:2px">'+a.detail+'</div>'
-      +'<div style="font-family:var(--fm);font-size:10px;color:rgba(255,140,0,.4);margin-top:1px">'+a.time+'</div>'
+      +'<div style="font-size:14px;color:'+col+'">'+_esc(a.title)+'</div>'
+      +'<div style="font-family:var(--fm);font-size:12px;color:var(--tx2);margin-top:2px">'+_esc(a.detail)+'</div>'
+      +'<div style="font-family:var(--fm);font-size:10px;color:rgba(255,140,0,.4);margin-top:1px">'+_esc(a.time)+'</div>'
       +'</div>';
   }).join('');
   // Push alerts to Firebase so all connected devices see them
@@ -2436,7 +2540,7 @@ function buildReport(){
   var vehRows=Object.keys(VEHICLES).map(function(vid){
     var v=VEHICLES[vid];var today2=new Date().toLocaleDateString('en-PH');
     var perf=(S.perfLog[vid]&&S.perfLog[vid][today2])||{drops:0,sets:0};
-    return '<tr><td>'+v.icon+' '+v.name+'</td><td>'+(v.driver||'—')+'</td><td>'+v.status.toUpperCase()+'</td><td>'+perf.drops+'</td><td>'+perf.sets+'</td><td>'+v.setsRemaining+'</td></tr>';
+    return '<tr><td>'+_esc(v.icon+' '+v.name)+'</td><td>'+_esc(v.driver||'—')+'</td><td>'+_esc(String(v.status||'').toUpperCase())+'</td><td>'+_esc(perf.drops)+'</td><td>'+_esc(perf.sets)+'</td><td>'+_esc(v.setsRemaining)+'</td></tr>';
   }).join('');
   var ts='border-collapse:collapse;width:100%;font-family:monospace;font-size:13px;margin-bottom:16px';
   var ths='padding:7px 10px;border:1px solid #1a3a5a;background:#0a1628;color:#F5A623;font-size:12px;text-align:left;text-transform:uppercase';
@@ -2468,12 +2572,23 @@ function printReport(){
   w.document.write(_rptHtml);
   w.document.close();setTimeout(function(){w.print();},500);
 }
+function _csvCell(v){
+  // RFC 4180 quoting + formula-injection guard (Excel/Sheets/LibreOffice)
+  if(v===null||v===undefined) v='';
+  var s = String(v);
+  // Prefix dangerous leading chars with a single quote so spreadsheets treat as text
+  if(/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  // Quote if it contains comma, quote, newline, or starts with whitespace
+  if(/[",\n\r]|^[ \t]/.test(s)) s = '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
 function exportCSV(){
   var rows=[['District','Division','Lot','Status','Sets','Vehicle','Last Attempt','Notes']];
   Object.keys(S.sites).forEach(function(k){
-    var ss=S.sites[k];if(ss.district)rows.push([ss.district,ss.division,ss.lot,ss.status,ss.qty,ss.assignedVehicle||'','"'+(ss.lastAttempt||'')+'"','"'+(ss.notes||'').replace(/"/g,"'")+'"']);
+    var ss=S.sites[k];
+    if(ss.district) rows.push([ss.district,ss.division,ss.lot,ss.status,ss.qty,ss.assignedVehicle||'',ss.lastAttempt||'',ss.notes||'']);
   });
-  var csv=rows.map(function(r){return r.join(',');}).join('\n');
+  var csv=rows.map(function(r){return r.map(_csvCell).join(',');}).join('\r\n');
   var a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
   a.download='andsons_report_'+new Date().toISOString().split('T')[0]+'.csv';a.click();
 }
@@ -2494,6 +2609,14 @@ Object.keys(VEHICLES).forEach(function(vid){
 });
 
 function toggleGPS() {
+  // Refuse to "turn on" if the Traccar server is still the placeholder.
+  // Previously this would silently no-op the polling while the button glowed green.
+  if(!_GPS_ENABLED && _TRACCAR_URL.indexOf('YOUR-TRACCAR-SERVER') >= 0) {
+    addAlert('GPS Not Configured',
+      'Traccar server URL is not set. Edit index.html: set _TRACCAR_URL and _TRACCAR_AUTH to your Traccar instance before enabling GPS.',
+      'warning');
+    return;
+  }
   _GPS_ENABLED = !_GPS_ENABLED;
   var btn = document.getElementById('gps-toggle-btn');
   if(btn) {
@@ -2572,6 +2695,61 @@ function applyGmapsPaste() {
   addAlert('Coordinates Ready', lat.toFixed(5)+', '+lng.toFixed(5)+' — click SAVE CHANGES to apply','info');
 }
 
+function _showGmpUrlErr(msg){
+  var e = document.getElementById('gmp-url-err');
+  if(!e) return;
+  if(msg){ e.textContent = msg; e.style.display='block'; }
+  else { e.textContent=''; e.style.display='none'; }
+}
+
+function _parseGmapsUrl(url){
+  // Returns {lat, lng} or null. Tries patterns in order.
+  if(!url) return null;
+  // 1. /@lat,lng,zoom — standard share URL
+  var m = url.match(/[\/@](-?\d+\.\d+),(-?\d+\.\d+)(?:[,/]|$)/);
+  if(m) return {lat:parseFloat(m[1]), lng:parseFloat(m[2])};
+  // 2. !3dLAT!4dLNG — place links
+  m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if(m) return {lat:parseFloat(m[1]), lng:parseFloat(m[2])};
+  // 3. ?q=lat,lng or &q=lat,lng
+  m = url.match(/[?&]q=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+  if(m) return {lat:parseFloat(m[1]), lng:parseFloat(m[2])};
+  // 4. ?ll=lat,lng (legacy)
+  m = url.match(/[?&]ll=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+  if(m) return {lat:parseFloat(m[1]), lng:parseFloat(m[2])};
+  // 5. ?destination=lat,lng (directions URLs)
+  m = url.match(/[?&](?:destination|origin)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+  if(m) return {lat:parseFloat(m[1]), lng:parseFloat(m[2])};
+  return null;
+}
+
+function extractFromGmapsUrl(){
+  var input = document.getElementById('gmp-url');
+  var raw = (input && input.value || '').trim();
+  if(!raw){ _showGmpUrlErr('Paste a Google Maps URL first.'); return; }
+  // Short links can't be expanded client-side
+  if(/(?:maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(raw)){
+    _showGmpUrlErr('Short links must be expanded first — open the link in your browser, then copy the long URL from the address bar and paste here.');
+    return;
+  }
+  var parsed = _parseGmapsUrl(raw);
+  if(!parsed){
+    _showGmpUrlErr('Could not find coordinates in that URL. Make sure it has /@lat,lng,zoom or !3dLAT!4dLNG in it.');
+    return;
+  }
+  if(parsed.lat<-90 || parsed.lat>90 || parsed.lng<-180 || parsed.lng>180){
+    _showGmpUrlErr('Parsed coordinates are out of valid range (lat -90..90, lng -180..180).');
+    return;
+  }
+  // Populate both the quick-paste fields AND the main edit fields
+  document.getElementById('gmp-lat').value = parsed.lat.toFixed(6);
+  document.getElementById('gmp-lng').value = parsed.lng.toFixed(6);
+  document.getElementById('es-lat').value  = parsed.lat.toFixed(6);
+  document.getElementById('es-lng').value  = parsed.lng.toFixed(6);
+  _showGmpUrlErr(null);
+  addAlert('Coordinates Extracted', parsed.lat.toFixed(5)+', '+parsed.lng.toFixed(5)+' — click SAVE CHANGES to apply','info');
+}
+
 /* ═══ CLOCK ══════════════════════════════════════════════════════════ */
 function tick(){
   var n=new Date();
@@ -2647,6 +2825,130 @@ function loadAllocAddress() {
     } else {
       addAlert('Not Found', 'No allocation address found for: ' + ss.district, 'warning');
     }
+  }
+}
+
+/* ═══ COORDINATE AUDIT ═══════════════════════════════════════════════
+   Province / city centroids used to sanity-check site coordinates.
+   Source: hand-curated, ±5 km accuracy is fine — we're catching coords
+   that are 50+ km off (wrong province, on a mountain, in the ocean).
+═══════════════════════════════════════════════════════════════════════ */
+var _PH_CENTROIDS = {
+  // Provinces
+  'Aklan':[11.81,122.09],'Albay':[13.18,123.62],'Antique':[11.18,121.96],
+  'Aurora':[15.74,121.55],'Bataan':[14.68,120.50],'Batanes':[20.45,121.97],
+  'Bulacan':[14.93,120.93],'Cagayan':[18.04,121.83],'Capiz':[11.55,122.73],
+  'Catanduanes':[13.70,124.30],'Guimaras':[10.59,122.61],'Ilocos Norte':[18.16,120.74],
+  'Ilocos Sur':[17.43,120.54],'Iloilo Province':[11.00,122.55],'Iloilo':[11.00,122.55],
+  'Isabela':[17.00,121.81],'La Union':[16.61,120.32],'Marinduque':[13.40,121.96],
+  'Masbate':[12.37,123.45],'Nueva Ecija':[15.58,121.10],'Nueva Vizcaya':[16.33,121.18],
+  'Occidental Mindoro':[12.80,120.85],'Oriental Mindoro':[13.04,121.41],
+  'Palawan':[9.83,118.74],'Pampanga':[15.08,120.62],'Pangasinan':[15.92,120.36],
+  'Pangasinan I, Lingayen':[15.92,120.23],'Pangasinan II, Binalonan':[16.07,120.59],
+  'Quirino':[16.38,121.62],'Romblon':[12.57,122.27],'Sorsogon':[12.97,124.00],
+  'Tarlac':[15.50,120.60],'Zambales':[15.50,120.06],
+  // Cities (treated as DepEd "divisions" in ALL_SITES)
+  'Alaminos City':[16.15,119.98],'Angeles City':[15.13,120.59],
+  'Balanga City':[14.68,120.53],'Batac City':[18.06,120.57],
+  'Cabanatuan City':[15.49,120.97],'Calapan City':[13.41,121.18],
+  'Candon City':[17.20,120.45],'Cauayan City':[16.93,121.77],
+  'City of Ilagan':[17.15,121.89],'Dagupan City':[16.04,120.34],
+  'Gapan City':[15.31,120.95],'Iloilo City':[10.72,122.56],
+  'Laoag City':[18.20,120.59],'Legaspi City':[13.14,123.74],
+  'Legazpi City':[13.14,123.74],'Ligao City':[13.22,123.52],
+  'Mabalacat City':[15.22,120.57],'Malolos City':[14.84,120.81],
+  'Masbate City':[12.37,123.62],'Meycauayan City':[14.74,120.96],
+  'Muñoz Science City':[15.72,120.91],'Olongapo City':[14.83,120.28],
+  'Passi City':[11.11,122.64],'Puerto Princesa City':[9.74,118.74],
+  'Roxas City':[11.59,122.75],'San Carlos City, I':[15.93,120.34],
+  'San Fernando City, I':[16.62,120.32],'San Fernando City, III':[15.04,120.69],
+  'San Jose City':[15.79,120.99],'San Jose del Monte City':[14.81,121.05],
+  'Santiago City':[16.69,121.55],'Sorsogon City':[12.97,124.01],
+  'Tabaco City':[13.36,123.73],'Tarlac City':[15.49,120.59],
+  'Tuguegarao City':[17.61,121.73],'Urdaneta City':[15.98,120.57],
+  'Vigan City':[17.57,120.39]
+};
+function _distanceKm(lat1, lng1, lat2, lng2) {
+  // Haversine — distance in km between two lat/lng points
+  var R = 6371;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLng = (lng2 - lng1) * Math.PI / 180;
+  var a = Math.sin(dLat/2)*Math.sin(dLat/2)
+        + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)
+        * Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function _provinceCentroid(division) {
+  if(!division) return null;
+  if(_PH_CENTROIDS[division]) return _PH_CENTROIDS[division];
+  // Best-effort fuzzy: strip "City of" prefix or trailing ", X"
+  var norm = division.replace(/^City of\s+/i,'').replace(/,.*$/,'').trim();
+  if(_PH_CENTROIDS[norm]) return _PH_CENTROIDS[norm];
+  // Try appending " City"
+  if(_PH_CENTROIDS[norm + ' City']) return _PH_CENTROIDS[norm + ' City'];
+  return null;
+}
+function _suspectScore(ss) {
+  // Returns {distanceKm, centroid} or null if cannot evaluate
+  if(!ss || ss.lat==null || ss.lng==null) return null;
+  // Outside PH bounding box → automatically very suspect
+  if(ss.lat < 4.5 || ss.lat > 21.5 || ss.lng < 116 || ss.lng > 127) {
+    return {distanceKm: 9999, centroid:null, outsidePH:true};
+  }
+  var c = _provinceCentroid(ss.division);
+  if(!c) return null; // can't evaluate
+  return {distanceKm: _distanceKm(ss.lat, ss.lng, c[0], c[1]), centroid:c, outsidePH:false};
+}
+function findSuspectSites(thresholdKm) {
+  thresholdKm = thresholdKm || 100;
+  var out = [];
+  Object.keys(S.sites).forEach(function(key){
+    var ss = S.sites[key];
+    var s = _suspectScore(ss);
+    if(s && s.distanceKm >= thresholdKm) {
+      out.push({key:key, ss:ss, distanceKm:s.distanceKm, outsidePH:s.outsidePH});
+    }
+  });
+  out.sort(function(a,b){ return b.distanceKm - a.distanceKm; });
+  return out;
+}
+function openCoordsAudit() {
+  document.getElementById('audit-coords-modal').classList.add('open');
+  renderCoordsAudit();
+}
+function renderCoordsAudit() {
+  var threshold = parseInt(document.getElementById('audit-threshold').value || '100');
+  var list = findSuspectSites(threshold);
+  var holder = document.getElementById('audit-list');
+  var countEl = document.getElementById('audit-count');
+  countEl.textContent = list.length + ' SUSPECT SITES';
+  if(list.length === 0) {
+    holder.innerHTML = '<div style="padding:30px;text-align:center;font-family:var(--fm);font-size:13px;color:var(--green)">&#10003; No suspect coordinates at this threshold. Looks clean.</div>';
+    return;
+  }
+  holder.innerHTML = list.slice(0,200).map(function(item){
+    var ss = item.ss;
+    var distStr = item.outsidePH ? 'OUTSIDE PH' : Math.round(item.distanceKm) + ' km off';
+    var distColor = item.outsidePH || item.distanceKm > 200 ? 'var(--red)' : 'var(--orange)';
+    var safeKey   = _esc(item.key);
+    var safeDist  = _esc(ss.district || '—');
+    var safeDiv   = _esc(ss.division || '—');
+    var safeAddr  = _esc(ss.address  || '—');
+    var safeLat   = ss.lat!=null ? ss.lat.toFixed(5) : '?';
+    var safeLng   = ss.lng!=null ? ss.lng.toFixed(5) : '?';
+    return '<div style="padding:10px 12px;border-bottom:1px solid rgba(245,166,35,.08);display:flex;align-items:flex-start;gap:10px">'
+      + '<div style="flex:1;min-width:0">'
+        + '<div style="font-family:var(--fn);font-size:13px;color:var(--gold);font-weight:600">'+safeDist+' <span style="color:var(--tx2);font-weight:400;font-size:11px;font-family:var(--fm)">('+safeDiv+')</span></div>'
+        + '<div style="font-family:var(--fm);font-size:11px;color:var(--tx2);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+safeAddr+'</div>'
+        + '<div style="font-family:var(--fm);font-size:10px;color:'+distColor+';margin-top:4px;letter-spacing:1px">'
+          + '&#9888; '+_esc(distStr)+' &nbsp;|&nbsp; '+safeLat+', '+safeLng
+        + '</div>'
+      + '</div>'
+      + '<button class="btn sm" onclick="document.getElementById(\'audit-coords-modal\').classList.remove(\'open\');openEditSite(\''+safeKey.replace(/\\/g,"\\\\").replace(/'/g,"\\'")+'\')" style="background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.4);color:var(--gold);white-space:nowrap;padding:6px 12px">FIX &raquo;</button>'
+    + '</div>';
+  }).join('');
+  if(list.length > 200) {
+    holder.innerHTML += '<div style="padding:12px;text-align:center;font-family:var(--fm);font-size:11px;color:var(--tx2)">… '+(list.length-200)+' more not shown. Raise threshold to narrow.</div>';
   }
 }
 
@@ -3002,9 +3304,22 @@ updateStats = function(){
   updateMobStats();
 };
 
+// Track whether the page started in mobile or desktop mode, so we can detect
+// when the user resizes across the 768px threshold mid-session. The map
+// library (Leaflet vs Google) was chosen at startup and cannot be swapped
+// without a reload, so warn the user once. (B-11, B-12)
+window._startedMobile = (window.innerWidth < 768);
+window._layoutWarned  = false;
 window.addEventListener('resize', function(){
   _isMobile = window.innerWidth < 768;
   if(!_isMobile) _allDrawers.forEach(closeMobDrawer);
+  var crossedThreshold = (_isMobile !== window._startedMobile);
+  if(crossedThreshold && !window._layoutWarned && typeof addAlert==='function'){
+    window._layoutWarned = true;
+    addAlert('Layout Mismatch',
+      'Browser was resized across the mobile/desktop threshold. Refresh the page to load the correct map library.',
+      'warning');
+  }
 });
 
 </script>
